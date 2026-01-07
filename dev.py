@@ -7,8 +7,14 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    TextLoader,
+    UnstructuredPowerPointLoader,
+    UnstructuredWordDocumentLoader,
+)
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import Chroma
 
 # ---------------- Setup ----------------
@@ -18,7 +24,6 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 st.set_page_config(page_title="RAG ChatBot for Prop Data", layout="wide")
 st.title("RAG ChatBot for Prop Data")
 
-st.write("PDF exists:", os.path.exists("./Medical_book.pdf"))
 st.write("GROQ key present:", bool(GROQ_API_KEY))
 
 if "messages" not in st.session_state:
@@ -28,14 +33,42 @@ for m in st.session_state.messages:
     st.chat_message(m["role"]).markdown(m["content"])
 
 # ---------------- Vector store ----------------
+# Updated to include multiple document types
+
 @st.cache_resource(show_spinner=True)
 def get_vectorstore():
-    pdf_path = "./Medical_book.pdf"
-    if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"PDF not found at {pdf_path}")
+    data_dir = "./data"
+    if not os.path.isdir(data_dir):
+        raise FileNotFoundError(f"Data folder not found at {data_dir}")
 
-    loader = PyPDFLoader(pdf_path)
-    docs = loader.load()
+    docs = []
+
+    # PDFs
+    for fname in os.listdir(data_dir):
+        fpath = os.path.join(data_dir, fname)
+        if fname.lower().endswith(".pdf"):
+            docs.extend(PyPDFLoader(fpath).load())
+
+    # Text
+    for fname in os.listdir(data_dir):
+        fpath = os.path.join(data_dir, fname)
+        if fname.lower().endswith((".txt", ".md")):
+            docs.extend(TextLoader(fpath, encoding="utf-8").load())
+
+    # PowerPoint
+    for fname in os.listdir(data_dir):
+        fpath = os.path.join(data_dir, fname)
+        if fname.lower().endswith((".ppt", ".pptx")):
+            docs.extend(UnstructuredPowerPointLoader(fpath).load())
+
+    # Word (.doc / .docx)
+    for fname in os.listdir(data_dir):
+        fpath = os.path.join(data_dir, fname)
+        if fname.lower().endswith((".doc", ".docx")):
+            docs.extend(UnstructuredWordDocumentLoader(fpath).load())
+
+    if not docs:
+        raise ValueError("No documents loaded from data folder")
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     chunks = splitter.split_documents(docs)
